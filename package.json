@@ -8,6 +8,7 @@
     "start": "node scripts/run-next.mjs start"
   },
   "dependencies": {
+    "lucide-react": "^1.27.0",
     "next": "16.2.12",
     "react": "19.1.0",
     "react-dom": "19.1.0"

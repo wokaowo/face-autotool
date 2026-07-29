@@ -4,6 +4,7 @@ import argparse
 import base64
 import io
 import json
+import shutil
 import sys
 from pathlib import Path
 import warnings
@@ -244,6 +245,74 @@ def process_payload(image_path: str, keep_box: dict | None, crop_box: dict | Non
     return payload
 
 
+def filter_faces_payload(
+    model: YOLO,
+    input_path: str,
+    output_path: str,
+    conf: float,
+    device: str,
+) -> dict:
+    input_dir = Path(input_path).expanduser().resolve()
+    output_dir = Path(output_path).expanduser().resolve()
+
+    if not input_dir.is_dir():
+        raise ValueError(f"输入文件夹不存在：{input_dir}")
+    if input_dir == output_dir:
+        raise ValueError("输出路径不能和输入文件夹相同。")
+    if not 0 <= conf <= 1:
+        raise ValueError("检测置信度必须在 0 到 1 之间。")
+
+    image_paths = list(main.iter_images(input_dir, output_dir))
+    if not image_paths:
+        raise ValueError("输入文件夹里没有可处理的图片。")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    noneface_dir = output_dir / "noneface"
+    requested_device = resolve_detect_device(device)
+    used_device = requested_device
+    face_count = 0
+    noneface_count = 0
+    error_count = 0
+    errors: list[dict[str, str]] = []
+
+    for image_path in image_paths:
+        relative_path = image_path.relative_to(input_dir)
+        try:
+            image = load_image(image_path)
+            try:
+                detections = main.detect_faces(model, image, conf, device=used_device)
+            except Exception as error:
+                if used_device.startswith("cuda"):
+                    warnings.warn(f"CUDA inference failed, falling back to CPU: {error}")
+                    used_device = "cpu"
+                    detections = main.detect_faces(model, image, conf, device=used_device)
+                else:
+                    raise
+
+            target_path = (output_dir if detections else noneface_dir) / relative_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(image_path, target_path)
+            if detections:
+                face_count += 1
+            else:
+                noneface_count += 1
+        except Exception as error:
+            error_count += 1
+            errors.append({"path": str(relative_path), "error": str(error)})
+
+    return {
+        "inputPath": str(input_dir),
+        "outputPath": str(output_dir),
+        "nonefacePath": str(noneface_dir),
+        "scanned": len(image_paths),
+        "withFace": face_count,
+        "withoutFace": noneface_count,
+        "errors": error_count,
+        "errorDetails": errors[:20],
+        "runtime": {"device": used_device},
+    }
+
+
 def run_serve() -> None:
     model_path = str(Path(__file__).parent / "face_yolov8s.pt")
     model = YOLO(model_path)
@@ -279,6 +348,14 @@ def run_serve() -> None:
                     cmd.get("cropBox"),
                     cmd.get("eraseBoxes", []),
                     cmd.get("faceRatio", 0.45),
+                )
+            elif action == "filter_faces":
+                result = filter_faces_payload(
+                    model,
+                    cmd["inputPath"],
+                    cmd["outputPath"],
+                    cmd.get("conf", 0.25),
+                    cmd.get("device", "auto"),
                 )
             else:
                 result = {"error": f"unknown command: {action}"}

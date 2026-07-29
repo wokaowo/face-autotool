@@ -1,6 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  Archive,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CircleUserRound,
+  Download,
+  Eraser,
+  FolderInput,
+  FolderOpen,
+  ImagePlus,
+  Inbox,
+  LoaderCircle,
+  RotateCcw,
+  Save,
+  ScanFace,
+  Trash2,
+  Upload,
+  X
+} from "lucide-react";
 
 const IMAGE_FILE_PATTERN = /\.(jpg|jpeg|png|webp)$/i;
 const PAGE_SIZE = 40;
@@ -214,15 +234,18 @@ function cropBoxEquals(left, right) {
 }
 
 export default function FaceWorkbench() {
+  const [workflow, setWorkflow] = useState("manual");
   const [mode, setMode] = useState("single");
   const [tool, setTool] = useState("keep");
   const [queue, setQueue] = useState([]);
   const [activeItemId, setActiveItemId] = useState(null);
-  const [globalError, setGlobalError] = useState("");
+  const [globalNotice, setGlobalNotice] = useState(null);
   const [faceRatio, setFaceRatio] = useState(0.45);
   const [serverInputPath, setServerInputPath] = useState("");
   const [serverOutputPath, setServerOutputPath] = useState("");
   const [serverLoading, setServerLoading] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
+  const [filterResult, setFilterResult] = useState(null);
   const [currentPage, setCurrentPage] = useState(0);
 
   const queueRef = useRef([]);
@@ -231,6 +254,10 @@ export default function FaceWorkbench() {
   const canvasPaneRef = useRef(null);
   const stageCanvasRef = useRef(null);
   const dragStateRef = useRef(null);
+
+  function setGlobalError(message) {
+    setGlobalNotice(message ? { message, tone: "error" } : null);
+  }
 
   useEffect(() => {
     queueRef.current = queue;
@@ -317,6 +344,7 @@ export default function FaceWorkbench() {
     revokeQueueUrls(queueRef.current);
     setQueue(nextItems);
     setMode(nextMode);
+    setWorkflow("manual");
     setCurrentPage(0);
     setActiveItemId(nextItems[0]?.localId ?? null);
     setGlobalError(nextItems.length ? "" : "所选内容里没有可处理的图片。");
@@ -326,6 +354,7 @@ export default function FaceWorkbench() {
     revokeQueueUrls(queueRef.current);
     setQueue(payload.items || []);
     setMode(payload.mode || "single");
+    setWorkflow("manual");
     setCurrentPage(0);
     setActiveItemId(payload.items?.[0]?.localId ?? null);
     setServerOutputPath(payload.outputRoot || "");
@@ -464,6 +493,45 @@ export default function FaceWorkbench() {
     }
   }
 
+  async function filterServerFolder() {
+    if (!serverInputPath.trim()) {
+      setGlobalError("先输入待筛选的文件夹路径。");
+      return;
+    }
+    if (!serverOutputPath.trim()) {
+      setGlobalError("先输入筛选结果的输出路径。");
+      return;
+    }
+
+    setFilterLoading(true);
+    setFilterResult(null);
+    setGlobalError("");
+    try {
+      const response = await fetch("/api/filter", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          inputPath: serverInputPath,
+          outputPath: serverOutputPath
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "人脸筛选失败。");
+      }
+
+      setServerInputPath(payload.inputPath || serverInputPath);
+      setServerOutputPath(payload.outputPath || serverOutputPath);
+      setFilterResult(payload);
+    } catch (error) {
+      setGlobalError(error instanceof Error ? error.message : "人脸筛选失败。");
+    } finally {
+      setFilterLoading(false);
+    }
+  }
+
   async function saveCurrentItem(localId) {
     let item = queueRef.current.find((entry) => entry.localId === localId);
     if (!item) {
@@ -582,7 +650,10 @@ export default function FaceWorkbench() {
       }
     }
 
-    setGlobalError("本页可处理图片已提交保存，未选人脸的图片已保留供单图精修。");
+    setGlobalNotice({
+      message: "本页可处理图片已保存，未确认的图片仍保留在队列中。",
+      tone: "success"
+    });
   }
 
   function removeItem(localId) {
@@ -805,41 +876,196 @@ export default function FaceWorkbench() {
   const normalizedPage = Math.min(currentPage, totalPages - 1);
   const pageStart = normalizedPage * PAGE_SIZE;
   const pageItems = queue.slice(pageStart, pageStart + PAGE_SIZE);
+  const completion = summary.total ? Math.round((summary.processed / summary.total) * 100) : 0;
 
   return (
     <main className="mailApp">
       <header className="topbar">
         <div className="brandBlock">
-          <div className="brandGlyph">F</div>
+          <div className="brandGlyph" aria-hidden="true">
+            <ScanFace size={21} strokeWidth={2.25} />
+          </div>
           <div>
-            <p className="brandEyebrow">Face Mailroom</p>
-            <h1>像收件箱一样处理人脸图片</h1>
+            <h1>Face Studio</h1>
+            <p className="brandEyebrow">人脸图片工作台</p>
           </div>
         </div>
 
-        <div className="summaryStrip">
-          <div className="summaryChip">
-            <span>总数</span>
-            <strong>{summary.total}</strong>
+        <nav aria-label="工作流" className="workflowSwitcher">
+          <button
+            aria-current={workflow === "manual" ? "page" : undefined}
+            className={workflow === "manual" ? "workflowTab selected" : "workflowTab"}
+            onClick={() => setWorkflow("manual")}
+            type="button"
+          >
+            <CircleUserRound size={16} />
+            人工精修
+          </button>
+          <button
+            aria-current={workflow === "archive" ? "page" : undefined}
+            className={workflow === "archive" ? "workflowTab selected" : "workflowTab"}
+            onClick={() => setWorkflow("archive")}
+            type="button"
+          >
+            <Archive size={16} />
+            自动归档
+          </button>
+        </nav>
+
+        {workflow === "manual" ? (
+          <div className="summaryStrip" aria-label="队列概览">
+            <div className="summaryItem">
+              <strong>{summary.total}</strong>
+              <span>全部</span>
+            </div>
+            <div className="summaryDivider" />
+            <div className="summaryItem">
+              <strong>{summary.processed}</strong>
+              <span>完成</span>
+            </div>
+            <div className="summaryDivider" />
+            <div className="summaryItem">
+              <strong>{summary.waiting}</strong>
+              <span>待处理</span>
+            </div>
+            <div className="completionRing" style={{ "--completion": `${completion * 3.6}deg` }}>
+              <span>{completion}%</span>
+            </div>
           </div>
-          <div className="summaryChip">
-            <span>已完成</span>
-            <strong>{summary.processed}</strong>
+        ) : (
+          <div className={filterLoading ? "headerActivity active" : "headerActivity"}>
+            {filterLoading ? <LoaderCircle className="spin" size={16} /> : <Archive size={16} />}
+            {filterLoading ? "正在识别" : "归档就绪"}
           </div>
-          <div className="summaryChip">
-            <span>待处理</span>
-            <strong>{summary.waiting}</strong>
-          </div>
-          <div className="summaryChip">
-            <span>待选人</span>
-            <strong>{summary.blocked}</strong>
-          </div>
-        </div>
+        )}
       </header>
 
+      {globalNotice ? (
+        <div
+          className={`globalNotice ${globalNotice.tone}`}
+          role={globalNotice.tone === "error" ? "alert" : "status"}
+        >
+          <span>{globalNotice.message}</span>
+          <button aria-label="关闭提示" onClick={() => setGlobalNotice(null)} title="关闭" type="button">
+            <X size={16} />
+          </button>
+        </div>
+      ) : null}
+
+      {workflow === "archive" ? (
+        <section className="archiveWorkspace">
+          <div className="archiveHeader">
+            <div className="archiveMark" aria-hidden="true">
+              <FolderInput size={26} />
+            </div>
+            <div>
+              <p className="sectionEyebrow">AUTO ARCHIVE</p>
+              <h2>人脸照片归档</h2>
+            </div>
+          </div>
+
+          <div className="archiveForm">
+            <label className="pathField" htmlFor="archive-input-path">
+              <span>输入文件夹</span>
+              <div className="inputShell">
+                <FolderOpen aria-hidden="true" size={18} />
+                <input
+                  id="archive-input-path"
+                  onChange={(event) => {
+                    setServerInputPath(event.target.value);
+                    setFilterResult(null);
+                  }}
+                  placeholder="/data/photos"
+                  spellCheck="false"
+                  type="text"
+                  value={serverInputPath}
+                />
+              </div>
+            </label>
+
+            <label className="pathField" htmlFor="archive-output-path">
+              <span>输出文件夹</span>
+              <div className="inputShell">
+                <Archive aria-hidden="true" size={18} />
+                <input
+                  id="archive-output-path"
+                  onChange={(event) => {
+                    setServerOutputPath(event.target.value);
+                    setFilterResult(null);
+                  }}
+                  placeholder="/data/face-output"
+                  spellCheck="false"
+                  type="text"
+                  value={serverOutputPath}
+                />
+              </div>
+            </label>
+
+            <div className="archiveActions">
+              <button
+                className="actionButton primary"
+                disabled={filterLoading || serverLoading}
+                onClick={filterServerFolder}
+                type="button"
+              >
+                {filterLoading ? <LoaderCircle className="spin" size={17} /> : <ScanFace size={17} />}
+                {filterLoading ? "正在识别" : "开始归档"}
+              </button>
+              <button
+                className="actionButton"
+                disabled={serverLoading || filterLoading}
+                onClick={importServerPath}
+                type="button"
+              >
+                {serverLoading ? <LoaderCircle className="spin" size={17} /> : <Inbox size={17} />}
+                {serverLoading ? "正在导入" : "转入人工精修"}
+              </button>
+            </div>
+          </div>
+
+          {filterLoading ? (
+            <div className="archiveProgress" role="status">
+              <div className="progressTrack"><span /></div>
+              <p>正在扫描和复制图片</p>
+            </div>
+          ) : null}
+
+          {filterResult ? (
+            <div className="archiveResult" role="status">
+              <div className="resultLead">
+                <span className="resultCheck"><Check size={20} /></span>
+                <div>
+                  <strong>归档完成</strong>
+                  <span title={filterResult.outputPath}>{filterResult.outputPath}</span>
+                </div>
+              </div>
+              <div className="resultMetrics">
+                <div><strong>{filterResult.scanned}</strong><span>扫描</span></div>
+                <div><strong>{filterResult.withFace}</strong><span>有人脸</span></div>
+                <div><strong>{filterResult.withoutFace}</strong><span>无人脸</span></div>
+                <div className={filterResult.errors ? "hasError" : ""}>
+                  <strong>{filterResult.errors}</strong><span>失败</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="archiveEmpty">
+              <div><FolderOpen size={22} /></div>
+              <span>等待选择目录</span>
+            </div>
+          )}
+        </section>
+      ) : (
       <section className="workbenchShell">
         <aside className="leftRail">
           <div className="railPanel">
+            <div className="panelTitleRow">
+              <div>
+                <p className="sectionEyebrow">IMPORT</p>
+                <h2>添加图片</h2>
+              </div>
+              <Upload size={18} />
+            </div>
             <div className="segmented">
               <button
                 className={mode === "single" ? "segment selected" : "segment"}
@@ -858,20 +1084,31 @@ export default function FaceWorkbench() {
             </div>
 
             <button className="actionButton primary" onClick={() => singleInputRef.current?.click()} type="button">
+              <ImagePlus size={17} />
               选择图片
             </button>
             <button className="actionButton" onClick={() => folderInputRef.current?.click()} type="button">
+              <FolderOpen size={17} />
               选择文件夹
             </button>
-            <div className="serverImportCard">
+            <details className="serverImportCard">
+              <summary>
+                <FolderInput size={16} />
+                服务端路径
+              </summary>
+              <div className="serverImportBody">
               <label className="fieldLabel" htmlFor="server-input-path">
                 服务端输入路径
               </label>
               <input
                 className="textInput"
                 id="server-input-path"
-                onChange={(event) => setServerInputPath(event.target.value)}
-                placeholder="/data/images 或 /data/images/a.jpg"
+                onChange={(event) => {
+                  setServerInputPath(event.target.value);
+                  setFilterResult(null);
+                }}
+                placeholder="服务端图片或文件夹路径"
+                spellCheck="false"
                 type="text"
                 value={serverInputPath}
               />
@@ -881,17 +1118,29 @@ export default function FaceWorkbench() {
               <input
                 className="textInput"
                 id="server-output-path"
-                onChange={(event) => setServerOutputPath(event.target.value)}
-                placeholder="留空则自动生成输出目录"
+                onChange={(event) => {
+                  setServerOutputPath(event.target.value);
+                  setFilterResult(null);
+                }}
+                placeholder="输出路径（可选）"
+                spellCheck="false"
                 type="text"
                 value={serverOutputPath}
               />
-              <button className="actionButton" onClick={importServerPath} type="button" disabled={serverLoading}>
-                {serverLoading ? "读取中..." : "读取服务端路径"}
+              <button
+                className="actionButton"
+                disabled={serverLoading || filterLoading}
+                onClick={importServerPath}
+                type="button"
+              >
+                {serverLoading ? <LoaderCircle className="spin" size={17} /> : <Inbox size={17} />}
+                {serverLoading ? "正在导入" : "导入队列"}
               </button>
-            </div>
-            <button className="actionButton subtle" onClick={clearWorkspace} type="button">
-              清空当前队列
+              </div>
+            </details>
+            <button className="actionButton quiet" disabled={!queue.length} onClick={clearWorkspace} type="button">
+              <Trash2 size={16} />
+              清空队列
             </button>
 
             <div className="toolPalette">
@@ -905,6 +1154,7 @@ export default function FaceWorkbench() {
                   onClick={() => setTool("keep")}
                   type="button"
                 >
+                  <CircleUserRound size={16} />
                   {TOOL_META.keep.label}
                 </button>
                 <button
@@ -912,6 +1162,7 @@ export default function FaceWorkbench() {
                   onClick={() => setTool("erase")}
                   type="button"
                 >
+                  <Eraser size={16} />
                   {TOOL_META.erase.label}
                 </button>
               </div>
@@ -956,6 +1207,7 @@ export default function FaceWorkbench() {
                   onClick={() => setCurrentPage((value) => Math.max(0, value - 1))}
                   type="button"
                 >
+                  <ChevronLeft size={16} />
                   上一页
                 </button>
                 <span className="pagerText">
@@ -968,6 +1220,7 @@ export default function FaceWorkbench() {
                   type="button"
                 >
                   下一页
+                  <ChevronRight size={16} />
                 </button>
               </div>
             ) : null}
@@ -1014,10 +1267,12 @@ export default function FaceWorkbench() {
                       <div className="queueTileActions">
                         <button
                           className="tileIconButton"
+                          aria-label={`丢弃 ${item.name}`}
                           onClick={() => removeItem(item.localId)}
+                          title="丢弃"
                           type="button"
                         >
-                          丢弃
+                          <Trash2 size={15} />
                         </button>
                       </div>
                     </div>
@@ -1026,13 +1281,17 @@ export default function FaceWorkbench() {
               </div>
             ) : (
               <div className="emptyQueue">
+                <div className="emptyIcon"><ImagePlus size={24} /></div>
                 <strong>还没有图片</strong>
-                <p>单张模式可直接选图，批量模式可直接选择整个文件夹。</p>
+                <button className="emptyAction" onClick={() => singleInputRef.current?.click()} type="button">
+                  选择图片
+                </button>
               </div>
             )}
 
             {mode === "batch" ? (
               <button className="actionButton primary" onClick={saveCurrentPage} type="button">
+                <Save size={17} />
                 保存本页
               </button>
             ) : null}
@@ -1134,6 +1393,7 @@ export default function FaceWorkbench() {
 
               <div className="stageToolbar">
                 <button className="actionButton subtle" onClick={() => detectItem(activeItem.localId, true)} type="button">
+                  <RotateCcw size={17} />
                   重新检测
                 </button>
                 <button
@@ -1142,11 +1402,13 @@ export default function FaceWorkbench() {
                   onClick={() => saveCurrentItem(activeItem.localId)}
                   type="button"
                 >
+                  {activeItem?.status === "processing" ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}
                   {activeItem?.status === "processing" ? "处理中..." : mode === "batch" ? "保存" : "生成结果"}
                 </button>
                 {mode === "batch" ? (
                   <button className="actionButton" onClick={goNextItem} type="button">
                     下一张
+                    <ChevronRight size={17} />
                   </button>
                 ) : null}
                 <button
@@ -1155,14 +1417,18 @@ export default function FaceWorkbench() {
                   onClick={skipActiveItem}
                   type="button"
                 >
+                  <X size={17} />
                   跳过这张
                 </button>
               </div>
             </div>
           ) : (
             <div className="canvasEmpty">
-              <strong>像看邮件一样逐张处理图片。</strong>
-              <p>左边导入图片或文件夹，系统会把它们组织成一个可审阅的工作队列。</p>
+              <div className="emptyIcon"><ScanFace size={26} /></div>
+              <strong>选择图片开始精修</strong>
+              <button className="emptyAction" onClick={() => singleInputRef.current?.click()} type="button">
+                添加图片
+              </button>
             </div>
           )}
         </section>
@@ -1230,6 +1496,7 @@ export default function FaceWorkbench() {
                         download={downloadName(activeItem, "crop")}
                         href={activeItem.result.crop.dataUrl}
                       >
+                        <Download size={14} />
                         下载
                       </a>
                     )}
@@ -1250,6 +1517,7 @@ export default function FaceWorkbench() {
                           download={downloadName(activeItem, "painted")}
                           href={activeItem.result.painted.dataUrl}
                         >
+                          <Download size={14} />
                           下载
                         </a>
                       )}
@@ -1272,6 +1540,7 @@ export default function FaceWorkbench() {
                         download={downloadName(activeItem, "painted")}
                         href={activeItem.result.painted.dataUrl}
                       >
+                        <Download size={14} />
                         下载
                       </a>
                     )}
@@ -1286,10 +1555,10 @@ export default function FaceWorkbench() {
               <div className="miniEmpty">当前图片处理完成后，结果会出现在这里。</div>
             )}
 
-            {globalError ? <p className="errorBanner">{globalError}</p> : null}
           </div>
         </aside>
       </section>
+      )}
 
       <input
         accept="image/*"
