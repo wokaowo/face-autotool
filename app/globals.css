@@ -77,12 +77,16 @@ p {
 }
 
 .mailApp {
-  min-height: 100vh;
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
-  position: sticky;
-  top: 0;
+  position: relative;
+  flex: none;
   z-index: 20;
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto minmax(240px, 1fr);
@@ -512,9 +516,12 @@ p {
 .workbenchShell {
   display: grid;
   grid-template-columns: 300px minmax(460px, 1fr) 320px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 14px;
-  min-height: calc(100vh - 72px);
+  flex: 1;
+  min-height: 0;
   padding: 14px;
+  overflow: hidden;
 }
 
 .leftRail,
@@ -525,8 +532,8 @@ p {
 }
 
 .leftRail {
-  align-self: start;
-  overflow: hidden;
+  align-self: stretch;
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
@@ -547,6 +554,7 @@ p {
   display: grid;
   align-content: start;
   gap: 14px;
+  overflow: auto;
 }
 
 .inspectorPane .railPanel {
@@ -1111,6 +1119,7 @@ input[type="range"] {
 
 .stagePanel {
   display: grid;
+  flex: 1;
   min-height: 0;
   grid-template-rows: minmax(0, 1fr) auto;
   overflow: hidden;
@@ -1122,21 +1131,42 @@ input[type="range"] {
 
 .stageCanvas {
   position: relative;
-  min-height: 280px;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
-  background: #1c1c1e;
+  background-color: #c8c8c8;
+  background-image:
+    linear-gradient(45deg, #f2f2f2 25%, transparent 25%),
+    linear-gradient(-45deg, #f2f2f2 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f2f2f2 75%),
+    linear-gradient(-45deg, transparent 75%, #f2f2f2 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+}
+
+.stageBoard {
+  position: relative;
+  flex: none;
+  background: transparent;
 }
 
 .stageImage {
-  width: 100%;
-  height: auto;
+  position: absolute;
+  display: block;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
 }
 
 .cropBox {
   position: absolute;
   z-index: 3;
-  border: 2px solid rgba(255, 255, 255, 0.98);
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.48);
+  border: 1.5px solid #fff;
+  outline: 1px solid rgba(0, 0, 0, 0.82);
+  background: transparent;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.38);
   cursor: grab;
 }
 
@@ -1196,6 +1226,7 @@ input[type="range"] {
 
 .faceBox {
   position: absolute;
+  z-index: 4;
   border: 2px solid rgba(0, 113, 227, 0.95);
   background: rgba(0, 113, 227, 0.1);
   cursor: pointer;
@@ -1376,6 +1407,7 @@ input[type="range"] {
 @media (max-width: 1320px) {
   .workbenchShell {
     grid-template-columns: 290px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(180px, 32vh);
   }
 
   .inspectorPane {
@@ -1389,6 +1421,11 @@ input[type="range"] {
 }
 
 @media (max-width: 980px) {
+  .mailApp {
+    height: auto;
+    overflow: visible;
+  }
+
   .topbar {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -1420,6 +1457,13 @@ input[type="range"] {
 
   .workbenchShell {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
+    height: auto;
+    overflow: visible;
+  }
+
+  .stageCanvas {
+    min-height: 70vh;
   }
 
   .leftRail,
@@ -1611,5 +1655,736 @@ input[type="range"] {
     grid-column: 1 / -1;
     grid-row: 1;
     justify-self: center;
+  }
+}
+
+.datasetTopbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  min-height: 64px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.datasetTopbar .summaryStrip {
+  gap: 16px;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.datasetTopbar .completionRing {
+  border: 0;
+  background: conic-gradient(var(--blue) var(--completion), #e4e4e8 0);
+}
+
+.datasetTopbar .completionRing span {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #f7f7f9;
+}
+
+.datasetTopbar .exportSelect,
+.datasetTopbar .headerTools .actionButton {
+  min-height: 34px;
+  margin: 0;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.headerTools,
+.pathActions,
+.modalActions,
+.identityRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.headerTools .actionButton,
+.pathActions .actionButton,
+.pathField > .actionButton,
+.modalActions .actionButton,
+.identityRow .actionButton,
+.stageToolbar .actionButton {
+  width: auto;
+  margin-top: 0;
+}
+
+.exportSelect {
+  width: 128px;
+  min-height: 40px;
+}
+
+.reasonRow {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 14px 0;
+  scrollbar-width: none;
+}
+
+.reasonChip b {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.reasonChip.dim {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+.reasonRow.compact {
+  padding: 8px 0 0;
+}
+
+.reasonChip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.reasonChip.selected {
+  border-color: rgba(0, 113, 227, 0.45);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.reasonChip.static {
+  cursor: default;
+}
+
+.globalNotice.warn {
+  border-color: rgba(160, 90, 0, 0.22);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.workbenchShell.datasetShell {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  padding-top: 10px;
+}
+
+.datasetShell .canvasPane {
+  gap: 10px;
+}
+
+.datasetShell .stagePanel {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  box-shadow: none;
+}
+
+.datasetShell .stageToolbar {
+  min-height: 48px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.datasetShell .stageToolbar .actionButton {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.pathBar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.pathField {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 36px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.pathPrefix {
+  flex: none;
+  padding: 0 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.pathField .textInput {
+  min-width: 0;
+  min-height: 34px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.pathField .actionButton {
+  width: 34px;
+  min-height: 34px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  border-left: 1px solid var(--border);
+}
+
+.pathActions {
+  grid-column: auto;
+}
+
+.jobProgress,
+.jobMessage {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.jobTrack {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--surface-pressed);
+}
+
+.jobTrack span {
+  display: block;
+  height: 100%;
+  background: var(--blue);
+}
+
+.stageCanvas {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: auto;
+}
+
+.stageBoard {
+  margin: auto;
+}
+
+.stageEmpty {
+  display: grid;
+  margin: auto;
+  justify-items: center;
+  gap: 8px;
+  max-width: 280px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.toolbarHint,
+.modalNote,
+.sampleFacts,
+.inlineError {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.datasetShell .stageToolbar {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.toolbarHint {
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ratioControl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.ratioControl input {
+  width: 120px;
+}
+
+.faceBox.excluded {
+  border-color: var(--red);
+  background: rgba(215, 0, 21, 0.12);
+}
+
+.scrubDock {
+  flex: none;
+  margin-top: -10px;
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow);
+}
+
+.scrubHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  padding: 6px 12px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.scrubHead strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 640;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scrubTrack {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 22px;
+  margin: 4px 12px 0;
+  touch-action: none;
+  cursor: ew-resize;
+}
+
+.scrubSeg {
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 6px;
+  border-radius: 2px;
+  background: #d2d2d7;
+}
+
+.scrubSeg.success { background: var(--green); }
+.scrubSeg.accent { background: var(--amber); }
+.scrubSeg.danger { background: var(--red); }
+.scrubSeg.muted { background: #c7c7cc; }
+
+.scrubSeg.active {
+  height: 14px;
+}
+
+.scrubKnob {
+  position: absolute;
+  bottom: 1px;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--blue);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.scrubBubble {
+  position: absolute;
+  z-index: 2;
+  bottom: calc(100% + 4px);
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(29, 29, 31, 0.92);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.filmstrip {
+  display: flex;
+  gap: 8px;
+  height: 84px;
+  flex: none;
+  overflow-x: auto;
+  padding: 8px 14px 12px;
+  scroll-snap-type: x mandatory;
+  background: transparent;
+}
+
+.filmCard {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  scroll-snap-align: center;
+  cursor: pointer;
+}
+
+.filmCard.active {
+  outline: none;
+}
+
+.filmCard.active .filmFrame {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--blue);
+}
+
+.filmFrame {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+  background-color: #c8c8c8;
+  background-image:
+    linear-gradient(45deg, #f2f2f2 25%, transparent 25%),
+    linear-gradient(-45deg, #f2f2f2 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f2f2f2 75%),
+    linear-gradient(-45deg, transparent 75%, #f2f2f2 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.filmFrame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.filmFace,
+.filmCrop {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+.filmFace {
+  border: 1px solid rgba(0, 113, 227, 0.95);
+  pointer-events: none;
+}
+
+.filmPip {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #aeaeb2;
+  box-shadow: 0 0 0 1px #fff;
+}
+
+.filmPip.success { background: var(--green); }
+.filmPip.accent { background: var(--amber); }
+.filmPip.danger { background: var(--red); }
+
+.filmFace.selected {
+  border-color: #00a14b;
+}
+
+.filmCrop {
+  border: 1px solid #fff;
+  outline: 1px solid rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+}
+
+.filmMeta,
+.filmName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filmMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.filmName,
+.filmMissing,
+.filmEmpty {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.filmMissing,
+.filmEmpty {
+  display: grid;
+  height: 100%;
+  place-items: center;
+}
+
+.sampleFacts {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.redrawBox {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.metricGrid div {
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.metricGrid span {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.metricGrid strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.inspectorPane .listPanelHeader > div {
+  min-width: 0;
+}
+
+.inspectorPane .listPanelHeader h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.redrawPair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.redrawPair figure {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.redrawPair figure span,
+.redrawPair img,
+.redrawResult {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 108px;
+  border-radius: 8px;
+  background:
+    linear-gradient(45deg, #f2f2f2 25%, transparent 25%),
+    linear-gradient(-45deg, #f2f2f2 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f2f2f2 75%),
+    linear-gradient(-45deg, transparent 75%, #f2f2f2 75%);
+  background-color: #c8c8c8;
+  background-size: 16px 16px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  object-fit: contain;
+}
+
+.redrawPair figcaption {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.redrawPrompt {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.identityRow {
+  margin-top: 6px;
+}
+
+.identityRow .textInput,
+.redrawPrompt {
+  margin-bottom: 0;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.identityRow .textInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.detailList {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.detailList strong {
+  display: block;
+  color: var(--text);
+}
+
+.inlineError {
+  color: var(--red);
+}
+
+.faceListCard.excluded {
+  border-color: rgba(215, 0, 21, 0.28);
+  background: var(--red-soft);
+}
+
+.modalBackdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.modalCard {
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  overflow: auto;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.settingsGrid label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.browserJump {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.browserJump .textInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.browserList {
+  display: grid;
+  gap: 4px;
+  max-height: 360px;
+  margin-top: 10px;
+  overflow: auto;
+}
+
+.browserList button,
+.browserJump .actionButton {
+  width: auto;
+  margin-top: 0;
+  text-align: left;
+}
+
+.browserList button {
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  padding: 6px 8px;
+}
+
+.browserList button:hover {
+  background: var(--surface-pressed);
+}
+
+@media (max-width: 1320px) {
+  .workbenchShell.datasetShell {
+    grid-template-columns: minmax(0, 1fr) 328px;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .datasetShell .inspectorPane {
+    grid-column: auto;
+    grid-row: auto;
+    grid-template-columns: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .workbenchShell.datasetShell {
+    grid-template-columns: 1fr;
+    grid-template-rows: none;
+    height: auto;
+    overflow: visible;
+  }
+
+  .datasetShell .inspectorPane {
+    grid-column: 1;
+    grid-template-columns: 1fr;
+  }
+
+  .topbar.datasetTopbar {
+    display: flex;
+  }
+}
+
+@media (max-width: 700px) {
+  .pathBar,
+  .settingsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .pathActions {
+    grid-column: 1 / -1;
+  }
+
+  .toolbarHint {
+    max-width: none;
   }
 }

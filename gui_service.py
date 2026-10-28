@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 from ultralytics import YOLO
 
 import main
+import pipeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -313,9 +314,62 @@ def filter_faces_payload(
     }
 
 
+def _job_result(action: str, cmd: dict, model: YOLO) -> dict:
+    if action == "detect":
+        return detect_payload(
+            model,
+            cmd["image"],
+            cmd.get("conf", 0.25),
+            cmd.get("device", "auto"),
+        )
+    if action == "process":
+        return process_payload(
+            cmd["image"],
+            cmd.get("keepBox"),
+            cmd.get("cropBox"),
+            cmd.get("eraseBoxes", []),
+            cmd.get("faceRatio", 0.45),
+        )
+    if action == "filter_faces":
+        return filter_faces_payload(
+            model,
+            cmd["inputPath"],
+            cmd["outputPath"],
+            cmd.get("conf", 0.25),
+            cmd.get("device", "auto"),
+        )
+    output_path = str(cmd.get("outputPath") or "")
+    if action == "job_start":
+        params = cmd.get("params") if isinstance(cmd.get("params"), dict) else None
+        return pipeline.start_job(str(cmd.get("inputPath") or ""), output_path, params, bool(cmd.get("rerun")))
+    if action == "job_status":
+        return pipeline.job_status(output_path)
+    if action == "job_cancel":
+        return pipeline.cancel_job(output_path)
+    if action == "job_sample":
+        crop_box = cmd.get("cropBox") if isinstance(cmd.get("cropBox"), dict) else None
+        identity = cmd.get("identity") if "identity" in cmd else None
+        redraw = cmd.get("redraw") if isinstance(cmd.get("redraw"), dict) else None
+        return pipeline.update_sample(output_path, str(cmd.get("sampleId") or ""), str(cmd.get("op") or ""), crop_box, identity, redraw)
+    if action == "job_params":
+        params = cmd.get("params") if isinstance(cmd.get("params"), dict) else {}
+        return pipeline.update_params(output_path, params)
+    if action == "job_export":
+        return pipeline.export_job(output_path, str(cmd.get("kind") or ""))
+    if action == "job_cursor":
+        return pipeline.set_cursor(output_path, str(cmd.get("pieceId") or ""), str(cmd.get("sampleId") or ""))
+    return {"error": f"unknown command: {action}"}
+
+
+def model_file() -> Path:
+    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return root / "face_yolov8s.pt"
+
+
 def run_serve() -> None:
-    model_path = str(Path(__file__).parent / "face_yolov8s.pt")
+    model_path = str(model_file())
     model = YOLO(model_path)
+    pipeline.bind_model(model)
     print(json.dumps({"status": "ready"}), flush=True)
 
     for line in sys.stdin:
@@ -334,31 +388,7 @@ def run_serve() -> None:
             break
 
         try:
-            if action == "detect":
-                result = detect_payload(
-                    model,
-                    cmd["image"],
-                    cmd.get("conf", 0.25),
-                    cmd.get("device", "auto"),
-                )
-            elif action == "process":
-                result = process_payload(
-                    cmd["image"],
-                    cmd.get("keepBox"),
-                    cmd.get("cropBox"),
-                    cmd.get("eraseBoxes", []),
-                    cmd.get("faceRatio", 0.45),
-                )
-            elif action == "filter_faces":
-                result = filter_faces_payload(
-                    model,
-                    cmd["inputPath"],
-                    cmd["outputPath"],
-                    cmd.get("conf", 0.25),
-                    cmd.get("device", "auto"),
-                )
-            else:
-                result = {"error": f"unknown command: {action}"}
+            result = _job_result(action, cmd, model)
         except Exception as error:
             result = {"error": str(error)}
 

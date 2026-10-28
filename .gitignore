@@ -41,7 +41,11 @@ desktop.ini
 *.swp
 *.swo
 
+dist/
+build/pyinstaller/
+
 # 环境变量
 .env
 .env.local
 .env*.local
+.wanx.json

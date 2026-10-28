@@ -2,7 +2,7 @@ import "./globals.css";
 
 export const metadata = {
   title: "Face Studio",
-  description: "人脸图片识别、归档与精修工作台。"
+  description: "人脸数据集产线：检测、复核，并导出 1024 样本。"
 };
 
 export default function RootLayout({ children }) {

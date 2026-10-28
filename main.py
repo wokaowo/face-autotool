@@ -50,19 +50,23 @@ class Stats:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Split long stitched images, detect faces with YOLOv8, and crop around the best face."
+        description="Split long images, detect every face, and write 1024 generation samples."
     )
     parser.add_argument("--input", default=Path("./input"), type=Path, help="Input image directory.")
-    parser.add_argument("--model", required=True, type=Path, help="Path to face_yolov8m.pt or compatible YOLO model.")
+    parser.add_argument("--model", required=True, type=Path, help="Path to face_yolov8s.pt or a compatible YOLO model.")
     parser.add_argument("--output", default=Path("./output"), type=Path, help="Output root directory.")
     parser.add_argument("--ratio", default=16 / 9, type=float, help="Long-image threshold, evaluated as H/W.")
     parser.add_argument("--conf", default=0.25, type=float, help="YOLO confidence threshold.")
+    parser.add_argument("--auto-conf", default=0.6, type=float, help="Minimum confidence for automatic ingest.")
+    parser.add_argument("--min-face", default=64, type=float, help="Minimum face short side, in pixels, for automatic ingest.")
+    parser.add_argument("--blur-threshold", default=50, type=float, help="Minimum Laplacian variance for automatic ingest.")
     parser.add_argument(
         "--face-ratio",
         default=0.45,
         type=float,
         help="Target face size as a fraction of output side length, using the larger face-box dimension.",
     )
+    parser.add_argument("--val-ratio", default=0.1, type=float, help="Validation share. Faces from one source stay together.")
     parser.add_argument(
         "--seam-sensitivity",
         default=1.5,
@@ -72,10 +76,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pad-incomplete",
         action="store_true",
-        help="Pad smaller edge crops to 1024x1024 using edge pixels.",
+        help="Kept for older commands. Crops that leave the image are always edge-padded to 1024.",
     )
-    parser.add_argument("--no-save-split", action="store_true", help="Do not save split intermediates.")
-    parser.add_argument("--device", default="cuda", type=str, help="YOLO device: cuda, cpu, or 0.")
+    parser.add_argument(
+        "--no-save-split",
+        action="store_true",
+        help="Kept for older commands. Split pieces are stored in the job directory.",
+    )
+    parser.add_argument("--device", default="auto", type=str, help="YOLO device: auto, cuda, cpu, or 0.")
     return parser.parse_args()
 
 
@@ -88,8 +96,16 @@ def validate_args(args: argparse.Namespace) -> None:
         raise SystemExit("[ERROR] --ratio must be greater than 0")
     if not 0 <= args.conf <= 1:
         raise SystemExit("[ERROR] --conf must be between 0 and 1")
+    if not 0 <= args.auto_conf <= 1:
+        raise SystemExit("[ERROR] --auto-conf must be between 0 and 1")
+    if args.min_face <= 0:
+        raise SystemExit("[ERROR] --min-face must be greater than 0")
+    if args.blur_threshold < 0:
+        raise SystemExit("[ERROR] --blur-threshold must be 0 or greater")
     if not 0 < args.face_ratio < 1:
         raise SystemExit("[ERROR] --face-ratio must be between 0 and 1")
+    if not 0 <= args.val_ratio <= 1:
+        raise SystemExit("[ERROR] --val-ratio must be between 0 and 1")
     if args.seam_sensitivity <= 0:
         raise SystemExit("[ERROR] --seam-sensitivity must be greater than 0")
 
@@ -452,17 +468,9 @@ def print_summary(stats: Stats) -> None:
 def main() -> int:
     args = parse_args()
     validate_args(args)
-    args.output.mkdir(parents=True, exist_ok=True)
+    import pipeline
 
-    tasks, stats = build_tasks(args)
-    if not tasks:
-        print("[WARN] no images to process")
-        print_summary(stats)
-        return 0
-
-    stats = run_detection_and_crop(tasks, args, stats)
-    print_summary(stats)
-    return 0
+    return pipeline.run_cli(args)
 
 
 if __name__ == "__main__":
