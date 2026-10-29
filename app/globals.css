@@ -1776,6 +1776,10 @@ input[type="range"] {
   padding-top: 10px;
 }
 
+.workbenchShell.datasetShell.solo {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .datasetShell .canvasPane {
   gap: 10px;
 }
@@ -2374,7 +2378,340 @@ input[type="range"] {
   }
 }
 
+.stageFrame {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.stageFrame .stageCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+.stageEmpty {
+  max-width: 380px;
+  gap: 10px;
+}
+
+.stageEmpty strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.stageEmpty ol {
+  margin: 0;
+  padding-left: 18px;
+  text-align: left;
+}
+
+.stageEmpty li + li {
+  margin-top: 4px;
+}
+
+.stageEmpty .actionButton {
+  width: auto;
+  margin-top: 2px;
+}
+
+.cropPreview,
+.cropPreviewToggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+}
+
+.cropPreview {
+  display: grid;
+  gap: 6px;
+  width: 156px;
+  justify-items: stretch;
+}
+
+.cropPreviewFrame {
+  position: relative;
+  width: 156px;
+  height: 156px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+  background-color: #c8c8c8;
+  background-image:
+    linear-gradient(45deg, #f2f2f2 25%, transparent 25%),
+    linear-gradient(-45deg, #f2f2f2 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f2f2f2 75%),
+    linear-gradient(-45deg, transparent 75%, #f2f2f2 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.cropPreviewFrame img {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+}
+
+.cropPreviewBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.cropPreviewBar button,
+.cropPreviewToggle {
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(29, 29, 31, 0.78);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  text-shadow: none;
+}
+
+.toolbarHintButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.toolbarHintButton:hover {
+  background: var(--surface-pressed);
+  color: var(--text);
+}
+
+.zoomCluster {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.zoomCluster button,
+.zoomCluster span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoomCluster button {
+  cursor: pointer;
+}
+
+.zoomCluster button:hover {
+  background: var(--surface-pressed);
+}
+
+.zoomCluster span {
+  min-width: 46px;
+  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.datasetShell .stageToolbar {
+  flex-wrap: wrap;
+}
+
+.actionButton kbd,
+.scrubNav kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.actionButton.primary kbd {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.reasonSplit {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 16px;
+  background: var(--border-strong);
+}
+
+.globalNotice {
+  position: fixed;
+  z-index: 35;
+  right: auto;
+  bottom: 18px;
+  left: 50%;
+  width: min(520px, calc(100% - 32px));
+  max-width: none;
+  margin: 0;
+  transform: translateX(-50%);
+  box-shadow: var(--shadow);
+}
+
+.globalNotice.info {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.pathField:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
+}
+
+.scrubNav {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.scrubNav button,
+.filterPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.scrubNav button {
+  padding: 2px 6px;
+}
+
+.filterPill {
+  padding: 2px 8px;
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.scrubNav button:hover:not(:disabled),
+.filterPill:hover {
+  background: var(--surface-pressed);
+  color: var(--text);
+}
+
+.filterPill:hover {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.scrubNav button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.filmCount {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(29, 29, 31, 0.82);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.settingsLabel {
+  margin: 16px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.fieldHint {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.confirmCard {
+  width: min(480px, 100%);
+}
+
+.shortcutList {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.shortcutList div {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.shortcutList dt,
+.shortcutList dd {
+  margin: 0;
+}
+
+.shortcutList dt {
+  font-weight: 650;
+}
+
+.shortcutList dd {
+  color: var(--text-secondary);
+}
+
+
+
 @media (max-width: 700px) {
+  .cropPreview,
+  .cropPreviewFrame {
+    width: 108px;
+  }
+
+  .cropPreviewFrame {
+    height: 108px;
+  }
+
+  .shortcutList div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
   .pathBar,
   .settingsGrid {
     grid-template-columns: 1fr;

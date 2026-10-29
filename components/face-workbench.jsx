@@ -5,9 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { fitStageLayout } from "lib/stage-layout.mjs";
 import {
   Ban,
+  CircleHelp,
   FolderOpen,
   ImagePlus,
   LoaderCircle,
+  Minus,
+  Plus,
   RotateCcw,
   Save,
   ScanFace,
@@ -91,10 +94,27 @@ function mediaUrl(root, file, revision) {
   return `/api/media?${params.toString()}`;
 }
 
-function preferredSample(samples, pieceId) {
+function sampleMatchesFilter(sample, filter) {
+  if (!sample) return false;
+  if (filter === "redraw") return Boolean(sample.padded || sample.status === "excluded" || sample.redraw?.kind);
+  if (filter === "ingested") return sample.status === "ingested";
+  if (!filter || filter === "review") return sample.status === "review";
+  if (filter === "no_face" || filter === "error") return false;
+  return sample.status === "review" && (sample.reasons || []).includes(filter);
+}
+
+function preferredSample(samples, pieceId, filter = "") {
   const faces = (samples || [])
     .filter((sample) => sample.pieceId === pieceId)
     .sort((left, right) => left.order - right.order);
+  if (filter && filter !== "no_face" && filter !== "error") {
+    return (
+      faces.find((sample) => sampleMatchesFilter(sample, filter)) ||
+      faces.find((sample) => sample.status === "review") ||
+      faces[0] ||
+      null
+    );
+  }
   return faces.find((sample) => sample.status === "review") || faces[0] || null;
 }
 
@@ -103,10 +123,28 @@ function pieceMatches(piece, samples, filter) {
   const faces = (samples || []).filter((sample) => sample.pieceId === piece.id);
   if (filter === "no_face") return piece.status === "no_face" || faces.length === 0;
   if (filter === "error") return piece.status === "error";
-  if (filter === "redraw") {
-    return faces.some((sample) => sample.padded || sample.status === "excluded" || sample.redraw?.kind);
-  }
-  return faces.some((sample) => sample.status === "review" && (sample.reasons || []).includes(filter));
+  return faces.some((sample) => sampleMatchesFilter(sample, filter));
+}
+
+function filterLabel(filter) {
+  if (filter === "review") return "待复核";
+  if (filter === "ingested") return "已入库";
+  if (filter === "no_face") return "无人脸";
+  if (filter === "error") return "失败";
+  if (filter === "redraw") return "待重绘";
+  return REASON_LABELS[filter] || filter;
+}
+
+function cropPreviewStyle(piece, crop) {
+  const cropWidth = crop.x2 - crop.x1;
+  const cropHeight = crop.y2 - crop.y1;
+  if (!piece?.width || !piece?.height || cropWidth <= 0 || cropHeight <= 0) return null;
+  return {
+    width: `${(piece.width / cropWidth) * 100}%`,
+    height: `${(piece.height / cropHeight) * 100}%`,
+    left: `${(-crop.x1 / cropWidth) * 100}%`,
+    top: `${(-crop.y1 / cropHeight) * 100}%`
+  };
 }
 
 function visiblePieces(pieces, samples, filter) {
@@ -221,6 +259,9 @@ export default function FaceWorkbench() {
   const [cropDraft, setCropDraft] = useState(null);
   const [identity, setIdentity] = useState("");
   const [busy, setBusy] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState("");
+  const [showCropPreview, setShowCropPreview] = useState(true);
 
   const outputRef = useRef("");
   const jobRef = useRef(null);
@@ -244,11 +285,18 @@ export default function FaceWorkbench() {
   const centeringRef = useRef(false);
   const scrubbingRef = useRef(false);
   const cursorTimer = useRef(0);
+  const overlayRef = useRef({});
 
   outputRef.current = outputPath;
   jobRef.current = job;
   selectionRef.current = selection;
   filterRef.current = filter;
+  overlayRef.current = {
+    help: helpOpen,
+    confirm: Boolean(pendingConfirm),
+    browser: Boolean(browser),
+    settings: settingsOpen
+  };
 
   function applyJob(next) {
     if (!next || next.missing) {
@@ -356,7 +404,7 @@ export default function FaceWorkbench() {
       const piece = job.pieces.find((item) => item.id === (pieceOk ? current.pieceId : job.activePieceId)) || job.pieces[0];
       const sample =
         job.samples.find((item) => item.id === job.activeSampleId && item.pieceId === piece.id) ||
-        preferredSample(job.samples, piece.id);
+        preferredSample(job.samples, piece.id, filterRef.current);
       return { pieceId: piece.id, sampleId: sample?.id || "" };
     });
   }, [job]);
@@ -433,6 +481,30 @@ export default function FaceWorkbench() {
   const running = job?.status === "running" || Boolean(job?.activity);
   const progress = job?.progress || { done: 0, total: 0, phase: "idle", current: "" };
   const progressPct = progress.total ? Math.min(100, Math.round((100 * progress.done) / progress.total)) : 0;
+  const filteredOut = Boolean(filter) && shownPieces.length === 0;
+  const previewStyle = activePiece && shownCrop ? cropPreviewStyle(activePiece, shownCrop) : null;
+
+  useEffect(() => {
+    if (!filter || !pieces.length) return;
+    const list = visiblePieces(pieces, samples, filter);
+    if (!list.length) return;
+    if (filter === "no_face" || filter === "error") {
+      if (list.some((piece) => piece.id === selection.pieceId)) return;
+      rememberCursor(list[0].id, "");
+      return;
+    }
+    const piece = list.find((item) => item.id === selection.pieceId) || list[0];
+    const current = samples.find((item) => item.id === selection.sampleId && item.pieceId === piece.id);
+    if (piece.id === selection.pieceId && sampleMatchesFilter(current, filter)) return;
+    const sample = preferredSample(samples, piece.id, filter);
+    rememberCursor(piece.id, sample?.id || "");
+  }, [filter, job, selection.pieceId, selection.sampleId]);
+
+  useEffect(() => {
+    if (!notice || notice.sticky || !notice.tone) return undefined;
+    const timer = window.setTimeout(() => setNotice(null), 4200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     setIdentity(activeSample?.identity || "");
@@ -544,9 +616,42 @@ export default function FaceWorkbench() {
 
   useEffect(() => {
     function onKey(event) {
+      const overlay = overlayRef.current;
+      if (event.key === "Escape") {
+        if (overlay.help) setHelpOpen(false);
+        else if (overlay.confirm) setPendingConfirm("");
+        else if (overlay.browser) setBrowser(null);
+        else if (overlay.settings) {
+          paramsLock.current = false;
+          setSettingsOpen(false);
+        } else return;
+        event.preventDefault();
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (overlay.help || overlay.confirm || overlay.browser || overlay.settings) return;
       const tag = event.target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || event.target?.isContentEditable) return;
+      if (event.key === "?") {
+        event.preventDefault();
+        setHelpOpen(true);
+        return;
+      }
+      if (event.key === "-" || event.key === "_") {
+        event.preventDefault();
+        setZoom((current) => Math.min(6, Math.max(0.4, current / 1.1)));
+        return;
+      }
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        setZoom((current) => Math.min(6, Math.max(0.4, current * 1.1)));
+        return;
+      }
+      if (event.key === "0") {
+        event.preventDefault();
+        setZoom(1);
+        return;
+      }
       const currentJob = jobRef.current;
       if (!currentJob) return;
       const current = selectionRef.current;
@@ -557,8 +662,18 @@ export default function FaceWorkbench() {
         const index = Math.max(0, list.findIndex((piece) => piece.id === current.pieceId));
         const next = list[index + (event.key === "ArrowRight" ? 1 : -1)];
         if (!next) return;
-        const sample = preferredSample(currentJob.samples, next.id);
+        const sample = preferredSample(currentJob.samples, next.id, filterRef.current);
         actionRef.current.remember(next.id, sample?.id || "");
+        return;
+      }
+      if (event.key === "n" || event.key === "N") {
+        event.preventDefault();
+        actionRef.current.review(1);
+        return;
+      }
+      if (event.key === "p" || event.key === "P") {
+        event.preventDefault();
+        actionRef.current.review(-1);
         return;
       }
       if (event.key === "s" || event.key === "S") {
@@ -569,6 +684,11 @@ export default function FaceWorkbench() {
       if (event.key === "x" || event.key === "X") {
         event.preventDefault();
         actionRef.current.skip();
+        return;
+      }
+      if (event.key === "e" || event.key === "E") {
+        event.preventDefault();
+        actionRef.current.exclude();
         return;
       }
       if (/^[1-9]$/.test(event.key)) {
@@ -646,14 +766,15 @@ export default function FaceWorkbench() {
       setNotice({ tone: "", text: blockReason(activePiece, pieceSamples) });
       return null;
     }
-    setBusy(op);
+    const { quiet, ...payload } = extra || {};
+    if (!quiet) setBusy(op);
     try {
       const data = await postJson("/api/job", {
         action: "sample",
         outputPath,
         sampleId: activeSample.id,
         op,
-        ...extra
+        ...payload
       });
       applyJob(data);
       setCropDraft(null);
@@ -666,7 +787,7 @@ export default function FaceWorkbench() {
       setNotice({ tone: "", text: error.message });
       return null;
     } finally {
-      setBusy("");
+      if (!extra?.quiet) setBusy("");
     }
   }
 
@@ -769,15 +890,62 @@ export default function FaceWorkbench() {
     }
   }
 
-  async function saveIdentity() {
-    const data = await sendSample("identity", { identity });
-    if (!data) return;
+  async function saveIdentity({ quiet = false } = {}) {
+    if (!activeSample || (identity || "") === (activeSample.identity || "")) return;
+    const data = await sendSample("identity", { identity, quiet });
+    if (!data || quiet) return;
     setNotice({ tone: "success", text: "身份已记下。空名字在按人导出时归入 unknown。" });
+  }
+
+  function stepReview(direction) {
+    const currentJob = jobRef.current;
+    if (!currentJob) return;
+    const activeFilter = filterRef.current;
+    const piecesInView = visiblePieces(currentJob.pieces || [], currentJob.samples || [], activeFilter);
+    if (activeFilter === "no_face" || activeFilter === "error") {
+      if (!piecesInView.length) {
+        setNotice({ tone: "info", text: "这个筛选下没有图片。" });
+        return;
+      }
+      const index = piecesInView.findIndex((piece) => piece.id === selectionRef.current.pieceId);
+      if (piecesInView.length === 1 && index >= 0) {
+        setNotice({ tone: "info", text: "筛选里只有这一张。" });
+        return;
+      }
+      const next = piecesInView[(Math.max(index, 0) + direction + piecesInView.length) % piecesInView.length];
+      const sample = preferredSample(currentJob.samples, next.id, activeFilter);
+      rememberCursor(next.id, sample?.id || "");
+      return;
+    }
+    const ordered = [];
+    for (const piece of piecesInView) {
+      const faces = (currentJob.samples || [])
+        .filter((sample) => sample.pieceId === piece.id)
+        .sort((left, right) => left.order - right.order);
+      ordered.push(...faces.filter((sample) => sampleMatchesFilter(sample, activeFilter)));
+    }
+    if (!ordered.length) {
+      setNotice({
+        tone: "info",
+        text: activeFilter ? "这个筛选下没有可切换的人脸。" : "没有待复核的人脸。"
+      });
+      return;
+    }
+    const index = ordered.findIndex((sample) => sample.id === selectionRef.current.sampleId);
+    if (ordered.length === 1 && index >= 0) {
+      setNotice({ tone: "info", text: activeFilter ? "筛选里只剩这一张。" : "只剩这一张待复核。" });
+      return;
+    }
+    const start = index < 0 ? (direction > 0 ? -1 : 0) : index;
+    const next = ordered[(start + direction + ordered.length) % ordered.length];
+    rememberCursor(next.pieceId, next.id);
   }
 
   actionRef.current = {
     accept: () => void acceptCurrent(),
     skip: () => void skipCurrent(),
+    exclude: () => void excludeCurrent(),
+    review: stepReview,
     remember: rememberCursor
   };
 
@@ -838,6 +1006,7 @@ export default function FaceWorkbench() {
       if (latest?.lastExport && JSON.stringify(latest.lastExport) !== before) {
         setNotice({
           tone: "success",
+          sticky: true,
           text: `导出完成，写入 ${latest.lastExport.written ?? 0} 个。目录：${latest.lastExport.root || ""}`
         });
       } else if (latest?.error) {
@@ -872,7 +1041,7 @@ export default function FaceWorkbench() {
       left: Math.min(rect.width - 8, Math.max(8, event.clientX - rect.left)),
       text: `${index + 1} / ${shownRef.current.length}  ${piece.relativeSource || piece.id}`
     });
-    const sample = preferredSample(jobRef.current?.samples || [], piece.id);
+    const sample = preferredSample(jobRef.current?.samples || [], piece.id, filterRef.current);
     const sampleId = sample?.id || "";
     setSelection((current) => (current.pieceId === piece.id && current.sampleId === sampleId ? current : { pieceId: piece.id, sampleId }));
     if (persist) rememberCursor(piece.id, sampleId);
@@ -919,7 +1088,7 @@ export default function FaceWorkbench() {
     const piece = shownRef.current.find((item) => item.id === best.dataset.piece);
     if (!piece || piece.id === selectionRef.current.pieceId) return;
     fromScrollRef.current = true;
-    const sample = preferredSample(jobRef.current?.samples || [], piece.id);
+    const sample = preferredSample(jobRef.current?.samples || [], piece.id, filterRef.current);
     const sampleId = sample?.id || "";
     setSelection({ pieceId: piece.id, sampleId });
     window.clearTimeout(cursorTimer.current);
@@ -994,7 +1163,7 @@ export default function FaceWorkbench() {
             <strong>{summary.train}/{summary.val}</strong>
             <span>训练/验证</span>
           </div>
-          <div className="completionRing" aria-label={`完成度 ${summary.completion}%`} style={{ "--completion": `${summary.completion}%` }}>
+          <div className="completionRing" title="完成度" aria-label={`完成度 ${summary.completion}%`} style={{ "--completion": `${summary.completion}%` }}>
             <span>{summary.completion}</span>
           </div>
         </div>
@@ -1004,7 +1173,7 @@ export default function FaceWorkbench() {
             <option value="yolo">YOLO</option>
             <option value="identity">按人分夹</option>
           </select>
-          <button className="actionButton" disabled={exporting || running} onClick={() => void exportNow()} type="button">
+          <button className="actionButton" disabled={exporting || running} onClick={() => ((summary.review || 0) > 0 ? setPendingConfirm("export") : void exportNow())} type="button">
             {exporting ? <LoaderCircle className="spin" size={16} /> : null}
             导出
           </button>
@@ -1028,18 +1197,37 @@ export default function FaceWorkbench() {
               取消
             </button>
           ) : null}
-          <div className={activityLabel ? "headerActivity active" : "headerActivity"}>
-            {running ? <LoaderCircle className="spin" size={16} /> : null}
-            <span>{activityLabel}</span>
-          </div>
+          {activityLabel ? (
+            <div className="headerActivity active">
+              {running ? <LoaderCircle className="spin" size={16} /> : null}
+              <span>{activityLabel}</span>
+            </div>
+          ) : null}
         </div>
       </header>
 
-      <div className="reasonRow" aria-label="复核原因">
+      {(summary.total || summary.noFace || summary.errors) ? (
+      <div className="reasonRow" aria-label="筛选">
+        {[
+          ["review", "待复核", summary.review || 0],
+          ["ingested", "已入库", summary.ingested || 0]
+        ].map(([key, label, count]) => (
+          <button
+            aria-pressed={filter === key}
+            className={`reasonChip${count ? "" : " dim"}${filter === key ? " selected" : ""}`}
+            key={key}
+            onClick={() => setFilter((current) => (current === key ? "" : key))}
+            type="button"
+          >
+            {label} <b>{count}</b>
+          </button>
+        ))}
+        <span className="reasonSplit" aria-hidden="true" />
         {REASON_ORDER.map((reason) => {
           const count = summary.reasons?.[reason] || 0;
           return (
             <button
+              aria-pressed={filter === reason}
               className={`reasonChip${count ? "" : " dim"}${filter === reason ? " selected" : ""}`}
               key={reason}
               onClick={() => setFilter((current) => (current === reason ? "" : reason))}
@@ -1049,19 +1237,20 @@ export default function FaceWorkbench() {
             </button>
           );
         })}
-        <button className={`reasonChip${summary.noFace ? "" : " dim"}${filter === "no_face" ? " selected" : ""}`} onClick={() => setFilter((current) => (current === "no_face" ? "" : "no_face"))} type="button">
+        <button aria-pressed={filter === "no_face"} className={`reasonChip${summary.noFace ? "" : " dim"}${filter === "no_face" ? " selected" : ""}`} onClick={() => setFilter((current) => (current === "no_face" ? "" : "no_face"))} type="button">
           无人脸 <b>{summary.noFace || 0}</b>
         </button>
-        <button className={`reasonChip${summary.errors ? "" : " dim"}${filter === "error" ? " selected" : ""}`} onClick={() => setFilter((current) => (current === "error" ? "" : "error"))} type="button">
+        <button aria-pressed={filter === "error"} className={`reasonChip${summary.errors ? "" : " dim"}${filter === "error" ? " selected" : ""}`} onClick={() => setFilter((current) => (current === "error" ? "" : "error"))} type="button">
           失败 <b>{summary.errors || 0}</b>
         </button>
-        <button className={`reasonChip${filter === "redraw" ? " selected" : ""}`} onClick={() => setFilter((current) => (current === "redraw" ? "" : "redraw"))} type="button">
+        <button aria-pressed={filter === "redraw"} className={`reasonChip${filter === "redraw" ? " selected" : ""}`} onClick={() => setFilter((current) => (current === "redraw" ? "" : "redraw"))} type="button">
           待重绘 <b>{samples.filter((sample) => sample.padded || sample.status === "excluded" || sample.redraw?.kind).length}</b>
         </button>
       </div>
+      ) : null}
 
       {notice ? (
-        <div className={`globalNotice ${notice.tone || ""}`}>
+        <div className={`globalNotice ${notice.tone || ""}`} role="status">
           <span>{notice.text}</span>
           <button aria-label="关闭" onClick={() => setNotice(null)} type="button">
             <X size={16} />
@@ -1069,7 +1258,7 @@ export default function FaceWorkbench() {
         </div>
       ) : null}
 
-      <section className="workbenchShell datasetShell">
+      <section className={`workbenchShell datasetShell${job ? "" : " solo"}`}>
         <section className="canvasPane">
           <div className="pathBar">
             <label className="pathField">
@@ -1106,10 +1295,7 @@ export default function FaceWorkbench() {
               <button
                 className="actionButton subtle"
                 disabled={!job || Boolean(busy) || running}
-                onClick={() => {
-                  if (!window.confirm("重新检测会清掉已生成的样本文件，并保留手动确认、排除和改过的裁剪。")) return;
-                  void startJob(inputPath, outputPath, true);
-                }}
+                onClick={() => setPendingConfirm("rerun")}
                 type="button"
               >
                 <RotateCcw size={16} />
@@ -1155,79 +1341,125 @@ export default function FaceWorkbench() {
           {job?.message ? <p className="jobMessage">{job.message}</p> : null}
 
           <div className="stagePanel">
-            <div className="stageCanvas" ref={stageCanvasRef}>
-              {stageLayout && activePiece ? (
-                <div className="stageBoard" style={{ width: stageLayout.boardWidth, height: stageLayout.boardHeight }}>
-                  {previewUrl ? (
-                    <img
-                      alt={activePiece.relativeSource || activePiece.id}
-                      className="stageImage"
-                      draggable={false}
-                      key={activePiece.id}
-                      ref={imageRef}
-                      src={previewUrl}
-                      style={{
-                        left: stageLayout.imageLeft,
-                        top: stageLayout.imageTop,
-                        width: stageLayout.imageWidth,
-                        height: stageLayout.imageHeight
-                      }}
-                    />
-                  ) : null}
-                  {shownCrop ? (
-                    <div
-                      className="cropBox"
-                      onPointerDown={(event) => beginCropInteraction("move", event)}
-                      style={{
-                        left: stageLayout.cropLeft,
-                        top: stageLayout.cropTop,
-                        width: stageLayout.cropWidth,
-                        height: stageLayout.cropHeight
-                      }}
-                    >
-                      <div className="cropBoxBadge">{stageLayout.overflows ? "超出画面" : "裁剪范围"}</div>
-                      <div className="cropResizeHandle east" onPointerDown={(event) => beginCropInteraction("resize-east", event)} />
-                      <div className="cropResizeHandle west" onPointerDown={(event) => beginCropInteraction("resize-west", event)} />
-                      <div className="cropResizeHandle north" onPointerDown={(event) => beginCropInteraction("resize-north", event)} />
-                      <div className="cropResizeHandle south" onPointerDown={(event) => beginCropInteraction("resize-south", event)} />
-                    </div>
-                  ) : null}
-                  {pieceSamples.map((sample) => (
-                    <button
-                      className={
-                        sample.id === activeSample?.id
-                          ? "faceBox keepSelected"
-                          : sample.status === "excluded"
-                            ? "faceBox excluded"
-                            : "faceBox"
-                      }
-                      key={sample.id}
-                      onClick={() => rememberCursor(activePiece.id, sample.id)}
-                      style={{
-                        left: stageLayout.imageLeft + (sample.box.x1 / activePiece.width) * stageLayout.imageWidth,
-                        top: stageLayout.imageTop + (sample.box.y1 / activePiece.height) * stageLayout.imageHeight,
-                        width: ((sample.box.x2 - sample.box.x1) / activePiece.width) * stageLayout.imageWidth,
-                        height: ((sample.box.y2 - sample.box.y1) / activePiece.height) * stageLayout.imageHeight
-                      }}
-                      type="button"
-                    >
-                      <span>
-                        {sample.order} {formatConfidence(sample.confidence)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="stageEmpty">
-                  <ScanFace size={28} />
-                  <p>{activePiece?.status === "error" ? activePiece.error || "这张图片读取失败。" : "格子画布已就绪。填写输入和输出目录后开始检测。"}</p>
-                </div>
-              )}
+            <div className="stageFrame">
+              <div className="stageCanvas" ref={stageCanvasRef}>
+                {filteredOut ? (
+                  <div className="stageEmpty">
+                    <strong>这个筛选下没有图片</strong>
+                    <p>换一个条件，或回到全部图片。</p>
+                    <button className="actionButton" onClick={() => setFilter("")} type="button">清除筛选</button>
+                  </div>
+                ) : stageLayout && activePiece ? (
+                  <div className="stageBoard" style={{ width: stageLayout.boardWidth, height: stageLayout.boardHeight }}>
+                    {previewUrl ? (
+                      <img
+                        alt={activePiece.relativeSource || activePiece.id}
+                        className="stageImage"
+                        decoding="async"
+                        draggable={false}
+                        key={activePiece.id}
+                        ref={imageRef}
+                        src={previewUrl}
+                        style={{
+                          left: stageLayout.imageLeft,
+                          top: stageLayout.imageTop,
+                          width: stageLayout.imageWidth,
+                          height: stageLayout.imageHeight
+                        }}
+                      />
+                    ) : null}
+                    {shownCrop ? (
+                      <div
+                        className="cropBox"
+                        onPointerDown={(event) => beginCropInteraction("move", event)}
+                        style={{
+                          left: stageLayout.cropLeft,
+                          top: stageLayout.cropTop,
+                          width: stageLayout.cropWidth,
+                          height: stageLayout.cropHeight
+                        }}
+                      >
+                        {stageLayout.overflows ? <div className="cropBoxBadge">超出画面</div> : null}
+                        <div className="cropResizeHandle east" onPointerDown={(event) => beginCropInteraction("resize-east", event)} />
+                        <div className="cropResizeHandle west" onPointerDown={(event) => beginCropInteraction("resize-west", event)} />
+                        <div className="cropResizeHandle north" onPointerDown={(event) => beginCropInteraction("resize-north", event)} />
+                        <div className="cropResizeHandle south" onPointerDown={(event) => beginCropInteraction("resize-south", event)} />
+                      </div>
+                    ) : null}
+                    {pieceSamples.map((sample) => (
+                      <button
+                        aria-label={`第 ${sample.order} 张脸，${formatConfidence(sample.confidence)}`}
+                        className={
+                          sample.id === activeSample?.id
+                            ? "faceBox keepSelected"
+                            : sample.status === "excluded"
+                              ? "faceBox excluded"
+                              : "faceBox"
+                        }
+                        key={sample.id}
+                        onClick={() => rememberCursor(activePiece.id, sample.id)}
+                        style={{
+                          left: stageLayout.imageLeft + (sample.box.x1 / activePiece.width) * stageLayout.imageWidth,
+                          top: stageLayout.imageTop + (sample.box.y1 / activePiece.height) * stageLayout.imageHeight,
+                          width: ((sample.box.x2 - sample.box.x1) / activePiece.width) * stageLayout.imageWidth,
+                          height: ((sample.box.y2 - sample.box.y1) / activePiece.height) * stageLayout.imageHeight
+                        }}
+                        type="button"
+                      >
+                        <span>
+                          {sample.order} {formatConfidence(sample.confidence)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="stageEmpty">
+                    <ScanFace size={28} />
+                    {activePiece?.status === "error" ? (
+                      <p>{activePiece.error || "这张图片读取失败。"}</p>
+                    ) : (
+                      <>
+                        <strong>从检测开始</strong>
+                        <ol>
+                          <li>填写输出目录。上传的图片会放进其中的 incoming。</li>
+                          <li>上传图片，或选择服务器上已有的输入目录。</li>
+                          <li>开始检测。合格的脸自动入库，其余留在这里复核。</li>
+                        </ol>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+              {showCropPreview && previewStyle && previewUrl && !filteredOut ? (
+                <aside className="cropPreview" aria-label="入库预览">
+                  <div className="cropPreviewFrame">
+                    <img alt="" draggable={false} src={previewUrl} style={previewStyle} />
+                  </div>
+                  <div className="cropPreviewBar">
+                    <span>入库预览</span>
+                    <button onClick={() => setShowCropPreview(false)} type="button">隐藏</button>
+                  </div>
+                </aside>
+              ) : null}
+              {!showCropPreview && previewStyle && !filteredOut ? (
+                <button className="cropPreviewToggle" onClick={() => setShowCropPreview(true)} type="button">入库预览</button>
+              ) : null}
             </div>
-            <div className="stageToolbar" title="滚轮缩放，Alt+滚轮改裁剪。方向键换图，1-9 选脸，S 入库，X 跳过。">
-              <button className="actionButton subtle" onClick={() => setZoom(1)} type="button">
-                适配 {Math.round(zoom * 100)}%
+            <div className="stageToolbar">
+              <button className="toolbarHintButton" onClick={() => setHelpOpen(true)} type="button">
+                <CircleHelp size={14} />
+                快捷键
               </button>
+              <div className="zoomCluster" aria-label="缩放">
+                <button aria-label="缩小" onClick={() => setZoom((current) => Math.min(6, Math.max(0.4, current / 1.1)))} type="button">
+                  <Minus size={14} />
+                </button>
+                <span>{Math.round(zoom * 100)}%</span>
+                <button aria-label="放大" onClick={() => setZoom((current) => Math.min(6, Math.max(0.4, current * 1.1)))} type="button">
+                  <Plus size={14} />
+                </button>
+                <button onClick={() => setZoom(1)} type="button">适配</button>
+              </div>
               <label className="ratioControl">
                 人脸比例
                 <input
@@ -1245,17 +1477,20 @@ export default function FaceWorkbench() {
                 />
                 <span>{Number(params.faceRatio).toFixed(2)}</span>
               </label>
-              <button className="actionButton primary" disabled={Boolean(busy)} onClick={() => void acceptCurrent()} type="button">
+              <button className="actionButton primary" disabled={Boolean(busy) || !activeSample} onClick={() => void acceptCurrent()} title="写入生成集" type="button">
                 {busy === "accept" ? <LoaderCircle className="spin" size={16} /> : <Save size={16} />}
                 入库
+                <kbd>S</kbd>
               </button>
-              <button className="actionButton" disabled={Boolean(busy)} onClick={() => void skipCurrent()} type="button">
+              <button className="actionButton" disabled={Boolean(busy) || !activeSample} onClick={() => void skipCurrent()} title="不进入训练集" type="button">
                 <SkipForward size={16} />
                 跳过
+                <kbd>X</kbd>
               </button>
-              <button className="actionButton" disabled={Boolean(busy)} onClick={() => void excludeCurrent()} type="button">
+              <button className="actionButton" disabled={Boolean(busy) || !activeSample} onClick={() => void excludeCurrent()} title="排除这张脸，训练图里不会出现它" type="button">
                 <Ban size={16} />
-                排除这张脸
+                排除
+                <kbd>E</kbd>
               </button>
             </div>
           </div>
@@ -1263,8 +1498,23 @@ export default function FaceWorkbench() {
           <div className="scrubDock">
             <div className="scrubHead">
               <span>{shownPieces.length ? `${Math.max(activeIndex, 0) + 1} / ${shownPieces.length}` : "0 / 0"}</span>
-              <strong>{activePiece?.relativeSource || (filter ? "这个筛选下没有图片" : "还没有图片")}</strong>
-              <span>{summary.ingested}/{summary.total || 0} 已入库</span>
+              <strong>{filteredOut ? "这个筛选下没有图片" : activePiece?.relativeSource || "还没有图片"}</strong>
+              {filter ? (
+                <button className="filterPill" onClick={() => setFilter("")} type="button">
+                  {filterLabel(filter)}
+                  <X size={12} />
+                </button>
+              ) : null}
+              <div className="scrubNav">
+                <button disabled={!shownPieces.length} onClick={() => stepReview(-1)} type="button">
+                  上一条
+                  <kbd>P</kbd>
+                </button>
+                <button disabled={!shownPieces.length} onClick={() => stepReview(1)} type="button">
+                  {filter ? "下一条" : "下一条待复核"}
+                  <kbd>N</kbd>
+                </button>
+              </div>
             </div>
             {shownPieces.length ? (
               <div
@@ -1295,17 +1545,19 @@ export default function FaceWorkbench() {
                   const crop = piece.id === activePiece?.id ? shownCrop : faces[0]?.cropBox;
                   return (
                     <button
+                      aria-label={`${piece.relativeSource || piece.id}，${faces.length} 张脸`}
                       className={piece.id === activePiece?.id ? "filmCard active" : "filmCard"}
                       data-piece={piece.id}
                       key={piece.id}
                       onClick={() => {
-                        const sample = preferredSample(samples, piece.id);
+                        const sample = preferredSample(samples, piece.id, filter);
                         rememberCursor(piece.id, sample?.id || "");
                       }}
                       type="button"
                     >
                       <div className="filmFrame">
-                        {piece.previewPath ? <img alt="" src={mediaUrl(job.outputPath, piece.previewPath, piece.revision)} /> : <span className="filmMissing">无预览</span>}
+                        {piece.previewPath ? <img alt="" decoding="async" loading="lazy" src={mediaUrl(job.outputPath, piece.previewPath, piece.revision)} /> : <span className="filmMissing">无预览</span>}
+                        {faces.length > 1 ? <span className="filmCount">{faces.length}</span> : null}
                         {crop && piece.width ? <span className="filmCrop" style={percentBox(crop, piece)} /> : null}
                         {faces.map((sample) => (
                           <span className={sample.id === activeSample?.id ? "filmFace selected" : "filmFace"} key={sample.id} style={percentBox(sample.box, piece)} />
@@ -1322,7 +1574,7 @@ export default function FaceWorkbench() {
           </div>
         </section>
 
-        <aside className="inspectorPane">
+        {job ? <aside className="inspectorPane">
           <div className="railPanel">
             <div className="listPanelHeader">
               <div>
@@ -1353,8 +1605,15 @@ export default function FaceWorkbench() {
                   <input
                     className="textInput"
                     id="identity-name"
+                    onBlur={() => void saveIdentity({ quiet: true })}
                     onChange={(event) => setIdentity(event.target.value)}
-                    placeholder="空则归入 unknown"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void saveIdentity();
+                      }
+                    }}
+                    placeholder="空则归入 unknown，离开输入框即记下"
                     value={identity}
                   />
                   <button className="actionButton subtle" onClick={() => void saveIdentity()} type="button">记下</button>
@@ -1417,6 +1676,7 @@ export default function FaceWorkbench() {
             </div>
           </div>
 
+          {(summary.errors || job?.error || (job?.noFace || []).length) ? (
           <div className="railPanel">
             <div className="listPanelHeader">
               <div>
@@ -1450,7 +1710,8 @@ export default function FaceWorkbench() {
             )}
             {job?.error ? <p className="inlineError">{job.error}</p> : null}
           </div>
-        </aside>
+          ) : null}
+        </aside> : null}
       </section>
 
       {settingsOpen ? (
@@ -1463,7 +1724,8 @@ export default function FaceWorkbench() {
               </div>
               <button aria-label="关闭" className="tileIconButton" onClick={() => { paramsLock.current = false; setSettingsOpen(false); }} type="button"><X size={16} /></button>
             </div>
-            <p className="modalNote">万相密钥只留在这台机器的 .wanx.json。业务空间 ID 用于华北2北京地域；留空则走通用 DashScope 地址。</p>
+            <p className="settingsLabel">万相重绘</p>
+            <p className="modalNote">密钥只留在这台机器的 .wanx.json，不会写进数据集。业务空间 ID 用于华北2（北京）；留空则走通用 DashScope 地址。</p>
             <div className="settingsGrid">
               <label>API Key<input className="textInput" autoComplete="off" onChange={(event) => setWanxKey(event.target.value)} placeholder={wanx.keyHint || "sk-"} type="password" value={wanxKey} /></label>
               <label>业务空间 ID<input className="textInput" onChange={(event) => setWanxWorkspace(event.target.value)} placeholder="WorkspaceId" value={wanxWorkspace} /></label>
@@ -1471,16 +1733,17 @@ export default function FaceWorkbench() {
             <div className="modalActions">
               <button className="actionButton" disabled={Boolean(busy)} onClick={() => void saveWanx()} type="button">{wanx.saved ? `更新密钥（${wanx.keyHint}）` : "记住密钥"}</button>
             </div>
-            <p className="modalNote">人脸比例会立刻重算还没手调过的裁剪。其余参数在继续检测或重新检测时生效。</p>
+            <p className="settingsLabel">检测与入库</p>
+            <p className="modalNote">人脸比例在画布上调整，会立刻重算还没手调过的裁剪。下面这些要等继续检测或重新检测才生效。</p>
             <div className="settingsGrid">
-              <label>检测阈值<input className="textInput" max="1" min="0" onChange={(event) => setParams((current) => ({ ...current, conf: Number(event.target.value) }))} step="0.01" type="number" value={params.conf} /></label>
-              <label>自动入库阈值<input className="textInput" max="1" min="0" onChange={(event) => setParams((current) => ({ ...current, autoConf: Number(event.target.value) }))} step="0.01" type="number" value={params.autoConf} /></label>
-              <label>最小短边<input className="textInput" min="1" onChange={(event) => setParams((current) => ({ ...current, minFace: Number(event.target.value) }))} step="1" type="number" value={params.minFace} /></label>
-              <label>模糊阈值<input className="textInput" min="0" onChange={(event) => setParams((current) => ({ ...current, blurThreshold: Number(event.target.value) }))} step="1" type="number" value={params.blurThreshold} /></label>
-              <label>重复距离<input className="textInput" min="0" onChange={(event) => setParams((current) => ({ ...current, duplicateDistance: Number(event.target.value) }))} step="1" type="number" value={params.duplicateDistance} /></label>
-              <label>验证比例<input className="textInput" max="1" min="0" onChange={(event) => setParams((current) => ({ ...current, valRatio: Number(event.target.value) }))} step="0.01" type="number" value={params.valRatio} /></label>
-              <label>长图高宽比<input className="textInput" min="0.1" onChange={(event) => setParams((current) => ({ ...current, longRatio: Number(event.target.value) }))} step="0.1" type="number" value={params.longRatio} /></label>
-              <label>缝隙灵敏度<input className="textInput" min="0.1" onChange={(event) => setParams((current) => ({ ...current, seamSensitivity: Number(event.target.value) }))} step="0.1" type="number" value={params.seamSensitivity} /></label>
+              <label>检测阈值<input className="textInput" max="1" min="0" onChange={(event) => setParams((current) => ({ ...current, conf: Number(event.target.value) }))} step="0.01" type="number" value={params.conf} /><span className="fieldHint">置信度低于此值的框直接丢掉。</span></label>
+              <label>自动入库阈值<input className="textInput" max="1" min="0" onChange={(event) => setParams((current) => ({ ...current, autoConf: Number(event.target.value) }))} step="0.01" type="number" value={params.autoConf} /><span className="fieldHint">达到此值，且没有其他问题，才自动入库。</span></label>
+              <label>最小短边<input className="textInput" min="1" onChange={(event) => setParams((current) => ({ ...current, minFace: Number(event.target.value) }))} step="1" type="number" value={params.minFace} /><span className="fieldHint">人脸短边小于此像素就进入复核。</span></label>
+              <label>模糊阈值<input className="textInput" min="0" onChange={(event) => setParams((current) => ({ ...current, blurThreshold: Number(event.target.value) }))} step="1" type="number" value={params.blurThreshold} /><span className="fieldHint">清晰度低于此值进入复核。数值越高越严格。</span></label>
+              <label>重复距离<input className="textInput" min="0" onChange={(event) => setParams((current) => ({ ...current, duplicateDistance: Number(event.target.value) }))} step="1" type="number" value={params.duplicateDistance} /><span className="fieldHint">感知哈希距离不超过此值，视为重复样本。</span></label>
+              <label>验证比例<input className="textInput" max="1" min="0" onChange={(event) => setParams((current) => ({ ...current, valRatio: Number(event.target.value) }))} step="0.01" type="number" value={params.valRatio} /><span className="fieldHint">按原图划分验证集，同一张图的脸在同一侧。</span></label>
+              <label>长图高宽比<input className="textInput" min="0.1" onChange={(event) => setParams((current) => ({ ...current, longRatio: Number(event.target.value) }))} step="0.1" type="number" value={params.longRatio} /><span className="fieldHint">高宽比超过此值，才按接缝切开。</span></label>
+              <label>缝隙灵敏度<input className="textInput" min="0.1" onChange={(event) => setParams((current) => ({ ...current, seamSensitivity: Number(event.target.value) }))} step="0.1" type="number" value={params.seamSensitivity} /><span className="fieldHint">越大越不容易把一行像素差判成接缝。</span></label>
             </div>
             <div className="modalActions">
               <button className="actionButton primary" onClick={() => { void commitParams(params).finally(() => setSettingsOpen(false)); }} type="button">应用</button>
@@ -1524,6 +1787,68 @@ export default function FaceWorkbench() {
                 使用此目录
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingConfirm ? (
+        <div className="modalBackdrop" onClick={() => setPendingConfirm("")}>
+          <div className="modalCard confirmCard" onClick={(event) => event.stopPropagation()} role="dialog" aria-label={pendingConfirm === "rerun" ? "重新检测" : "确认导出"}>
+            <div className="listPanelHeader">
+              <div>
+                <p className="sectionEyebrow">{pendingConfirm === "rerun" ? "检测" : "导出"}</p>
+                <h2>{pendingConfirm === "rerun" ? "重新检测" : "还有待复核"}</h2>
+              </div>
+              <button aria-label="关闭" className="tileIconButton" onClick={() => setPendingConfirm("")} type="button"><X size={16} /></button>
+            </div>
+            <p className="modalNote">
+              {pendingConfirm === "rerun"
+                ? "重新检测会清掉已生成的样本文件。手动入库、排除、跳过和改过的裁剪会保留。"
+                : `还有 ${summary.review} 张脸待复核。现在导出只写出已入库的样本。`}
+            </p>
+            <div className="modalActions">
+              <button className="actionButton subtle" onClick={() => setPendingConfirm("")} type="button">取消</button>
+              <button
+                className="actionButton primary"
+                onClick={() => {
+                  const action = pendingConfirm;
+                  setPendingConfirm("");
+                  if (action === "rerun") void startJob(inputPath, outputPath, true);
+                  else void exportNow();
+                }}
+                type="button"
+              >
+                {pendingConfirm === "rerun" ? "重新检测" : "仍然导出"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {helpOpen ? (
+        <div className="modalBackdrop" onClick={() => setHelpOpen(false)}>
+          <div className="modalCard confirmCard" onClick={(event) => event.stopPropagation()} role="dialog" aria-label="快捷键">
+            <div className="listPanelHeader">
+              <div>
+                <p className="sectionEyebrow">操作</p>
+                <h2>快捷键</h2>
+              </div>
+              <button aria-label="关闭" className="tileIconButton" onClick={() => setHelpOpen(false)} type="button"><X size={16} /></button>
+            </div>
+            <dl className="shortcutList">
+              <div><dt>左右方向键</dt><dd>上一张、下一张图</dd></div>
+              <div><dt>1 到 9</dt><dd>选择当前图上的脸</dd></div>
+              <div><dt>N / P</dt><dd>下一条、上一条待复核。有筛选时只在筛选结果里移动</dd></div>
+              <div><dt>S</dt><dd>入库，并跳到下一张待复核</dd></div>
+              <div><dt>X</dt><dd>跳过，不进入训练集</dd></div>
+              <div><dt>E</dt><dd>排除这张脸</dd></div>
+              <div><dt>滚轮</dt><dd>缩放画面</dd></div>
+              <div><dt>Alt + 滚轮</dt><dd>以指针位置为中心调整裁剪</dd></div>
+              <div><dt>- / + / 0</dt><dd>缩小、放大、回到适配</dd></div>
+              <div><dt>?</dt><dd>打开这个说明</dd></div>
+              <div><dt>Esc</dt><dd>关闭弹层</dd></div>
+            </dl>
+            <p className="modalNote">拖动裁剪框移动位置，拖四边改变大小。右上角是将写入数据集的正方形，拖动时会跟着变。</p>
           </div>
         </div>
       ) : null}
